@@ -1,0 +1,306 @@
+﻿use QUANLYBANHANG;
+go
+-------------------------Bai tap phan I--------------------------------
+
+-- 11.
+--trigger kiem tra tinh hop le cua ngdk khi insert hoac update hoa don
+CREATE TRIGGER TRG_HD_KH ON HOADON
+FOR INSERT, UPDATE
+AS
+BEGIN
+    DECLARE @NGDK SMALLDATETIME, @NGHD SMALLDATETIME, @MAKH CHAR(4)
+    SELECT @MAKH  = MAKH, @NGHD = NGHD
+	FROM INSERTED 
+	SELECT @NGDK = NGDK
+	FROM KHACHHANG
+	WHERE MAKH = @MAKH 
+
+    IF(@NGDK > @NGHD)
+    BEGIN 
+        PRINT 'ERROR: Thong tin khong hop le.'
+        ROLLBACK TRANSACTION
+    END
+    ELSE
+    BEGIN
+        PRINT 'Them thanh cong.'
+    END
+END
+go
+--trigger kiem tra tinh hop le cua ngdk khi update thong tin khach hang
+CREATE TRIGGER TRG_HD_KHUPD ON KHACHHANG
+FOR UPDATE
+AS
+BEGIN
+	DECLARE @NGHD SMALLDATETIME, @NGDK SMALLDATETIME
+	DECLARE @MAKH CHAR(4), @SOHD INT
+	
+	SELECT @MAKH = MAKH, @NGDK = NGDK
+	FROM INSERTED
+
+	DECLARE cursorDK CURSOR FOR
+		SELECT SOHD 
+		FROM HOADON 
+		WHERE MAKH = @MAKH
+	
+	OPEN cursorDK
+	FETCH NEXT FROM cursorDK 
+	INTO @SOHD
+
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		SELECT @NGHD = NGHD
+		FROM HOADON
+		WHERE SOHD = @SOHD
+		IF(@NGHD < @NGDK)
+			BEGIN
+				PRINT 'ERORR: Thong tin khong hop le.'
+				ROLLBACK TRANSACTION
+			END
+		ELSE
+		BEGIN
+			FETCH NEXT FROM cursorDK
+						INTO @SOHD
+		END
+	END
+
+	CLOSE cursorDK
+	PRINT 'Them thanh cong.'
+	DEALLOCATE cursorDK
+END
+go
+
+-- 12.	
+--trigger kiem tra tinh hop le cua ngay vao lam khi insert hoac update hoa don
+CREATE TRIGGER TRG_HD_NV ON HOADON
+FOR INSERT, UPDATE
+AS
+BEGIN
+	DECLARE @NGVL SMALLDATETIME, @NGHD SMALLDATETIME, @MANV CHAR(4)
+	SELECT @MANV = MANV, @NGHD = NGHD
+	FROM INSERTED
+
+	SELECT @NGVL = NGVL
+	FROM NHANVIEN
+	WHERE MANV = @MANV
+	IF(@NGVL > @NGHD)
+
+	BEGIN 
+        PRINT 'ERROR: Thong tin khong hop le.'
+        ROLLBACK TRANSACTION
+    END
+END
+go 
+
+--trigger kiem tra tinh hop le cua ngay vao lam khi update thong tin nhan vien
+CREATE TRIGGER TRG_UPD_NV ON NHANVIEN
+FOR UPDATE
+AS
+BEGIN
+	DECLARE @NGHD SMALLDATETIME, @NGVL SMALLDATETIME, @MANV CHAR(4), @SOHD INT
+	SELECT @MANV = MANV, @NGVL = NGVL
+	FROM INSERTED
+	DECLARE cursorDK CURSOR 
+	FOR
+		SELECT SOHD 
+		FROM HOADON 
+		WHERE MANV = @MANV
+	
+	OPEN cursorDK
+		FETCH NEXT FROM cursorDK into @SOHD
+		WHILE @@FETCH_STATUS = 0
+		BEGIN
+			SELECT @NGHD = NGHD
+			FROM HOADON
+			WHERE SOHD = @SOHD
+			IF(@NGHD < @NGVL)
+				BEGIN
+					PRINT 'ERORR: Thong tin khong hop le.'
+					ROLLBACK TRANSACTION
+				END
+			ELSE
+			BEGIN
+				FETCH NEXT FROM cursorDK
+						INTO @SOHD
+			END
+		END
+	CLOSE cursorDK
+	DEALLOCATE cursorDK
+END
+go
+
+-- 13.	
+--trigger dam bao moi hoa don co it nhat mot cthd khi xoa cthd
+CREATE TRIGGER TRG_DEL_CTHD ON CTHD
+FOR DELETE
+AS
+BEGIN
+	DECLARE @SoLuongCTHDSeXoa INT, 
+			@SoLuongCTHDHienTai INT,
+			@SOHD INT
+		
+	SELECT @SOHD = SOHD, @SoLuongCTHDSeXoa = COUNT(*) 
+	FROM DELETED
+	GROUP BY SOHD
+
+	SELECT @SoLuongCTHDHienTai = COUNT(*)
+	FROM CTHD
+	WHERE SOHD = @SOHD
+
+	IF(@SoLuongCTHDHienTai - @SoLuongCTHDSeXoa < 1)
+	BEGIN
+		PRINT 'ERROR: Moi hoa don phai co it nhat 1 hoa don.'
+		ROLLBACK TRANSACTION
+	END
+END
+go
+
+--trigger dam bao moi hoa don co it nhat mot cthd khi them mot hoa don
+CREATE TRIGGER TRG_INS_SOHD ON HOADON
+FOR INSERT
+AS 
+BEGIN
+	IF(EXISTS(SELECT * FROM inserted WHERE NOT EXISTS(SELECT * FROM CTHD WHERE SOHD=INSERTED.SOHD)))
+	BEGIN
+		PRINT 'ERROR: Moi hoa don phai co it nhat 1 hoa don.'
+		ROLLBACK TRANSACTION
+	END
+END
+go
+
+-- 14.	
+--trigger kiem tra tong gia tri co bang tri gia hoa don khi update hoa don
+CREATE TRIGGER TRG_UPD_HD ON HOADON
+FOR UPDATE
+AS
+BEGIN
+	DECLARE @TRIGIA MONEY,
+			@TONGTRIGIA INT,
+			@SOHD INT
+
+	SELECT @TRIGIA = TRIGIA, @SOHD = SOHD
+	FROM INSERTED
+
+	SELECT @TONGTRIGIA = SUM(SL * GIA)
+	FROM SANPHAM SP JOIN CTHD ON SP.MASP = CTHD.MASP
+	WHERE SOHD = @SOHD
+
+	IF(@TONGTRIGIA <> @TRIGIA)
+	BEGIN
+		PRINT('ERROR: Tri gia hoa don phai bang tong tri gia cac mon hang trong hoa don.')
+		ROLLBACK TRANSACTION
+	END
+END
+go
+
+--trigger kiem tra tong gia tri co bang tri gia hoa don khi insert, update, delete hoa don
+CREATE TRIGGER TRG_IDU_CTHD ON CTHD
+FOR INSERT, DELETE, UPDATE
+AS
+BEGIN
+	DECLARE @SL_MOI INT, 
+			@SL_CU INT,
+			@SOHD INT,
+			@MASP CHAR(4),
+			@DONGIA MONEY
+	
+	SELECT @SOHD = SOHD, @MASP = MASP, @SL_MOI = SL
+	FROM inserted
+
+	SELECT @SOHD = SOHD, @MASP = MASP, @SL_CU = SL
+	FROM deleted
+
+	SELECT @DONGIA = GIA
+	FROM SANPHAM
+	WHERE MASP = @MASP
+
+	IF EXISTS (SELECT* FROM inserted) AND EXISTS (SELECT* FROM deleted)
+	BEGIN
+		UPDATE HOADON
+		SET TRIGIA = TRIGIA - @DONGIA*@SL_CU + @DONGIA*@SL_MOI
+		WHERE SOHD = @SOHD
+		PRINT('Cap nhat 1 chi tiet hoa don thanh cong.')
+	END
+
+	IF EXISTS (SELECT* FROM inserted) AND NOT EXISTS (SELECT* FROM deleted)
+	BEGIN
+		UPDATE HOADON
+		SET TRIGIA = TRIGIA + @DONGIA*@SL_MOI
+		WHERE SOHD = @SOHD
+		PRINT('Cap nhat 1 chi tiet hoa don thanh cong.')
+	END
+
+	IF NOT EXISTS (SELECT* FROM inserted) AND EXISTS (SELECT* FROM deleted)
+	BEGIN
+		UPDATE HOADON
+		SET TRIGIA = TRIGIA - @DONGIA*@SL_CU
+		WHERE SOHD = @SOHD
+		PRINT('Xoa mot chi tiet hoa don thanh cong.')
+	END
+END
+go
+
+--trigger cap nhat tong gia tri co bang tri gia hoa don khi update mot san pham
+CREATE TRIGGER TRG_UPD_GIA ON SANPHAM
+FOR UPDATE
+AS
+BEGIN
+	DECLARE @MASP CHAR(4),
+			@GIAMOI MONEY,
+			@GIACU MONEY,
+			@SOHD INT,
+			@SL INT
+
+	SELECT @MASP = MASP, @GIAMOI = GIA
+	FROM INSERTED
+
+	SELECT @GIACU = GIA
+	FROM DELETED
+
+	DECLARE cur_CTHD CURSOR
+	FOR
+		SELECT SOHD, SL
+		FROM CTHD
+		WHERE MASP = @MASP
+
+	OPEN cur_CTHD
+	FETCH NEXT FROM cur_CTHD INTO @SOHD, @SL
+
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		UPDATE HOADON
+		SET TRIGIA = TRIGIA - @GIACU * @SL + @GIAMOI * @SL
+		WHERE SOHD = @SOHD
+		FETCH NEXT FROM cur_CTHD INTO @SOHD, @SL
+	END
+END
+go
+--trigger cap nhat tong gia tri co bang tri gia hoa don khi them mot cthd
+CREATE TRIGGER TRG_INS_CTHD ON CTHD
+FOR INSERT
+AS
+BEGIN
+	DECLARE @SOHD INT, @MASP CHAR(4), @SOLUONG INT, @TRIGIA MONEY
+	SELECT @SOHD = SOHD, @MASP = MASP, @SOLUONG = SL
+	FROM INSERTED
+	SET @TRIGIA = @SOLUONG * (SELECT GIA FROM SANPHAM WHERE MASP = @MASP)
+	DECLARE cur_CTHD CURSOR FOR
+		SELECT MASP, SL
+		FROM CTHD
+		WHERE SOHD = @SOHD
+	
+	OPEN cur_CTHD
+	FETCH NEXT FROM cur_CTHD
+	INTO @MASP, @SOLUONG
+
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		SET @TRIGIA = @TRIGIA + @SOLUONG * (SELECT GIA FROM SANPHAM WHERE MASP = @MASP)
+		FETCH NEXT FROM cur_CTHD
+		INTO @MASP, @SOLUONG
+	END
+
+	CLOSE cur_CTHD
+	DEALLOCATE cur_CTHD
+	UPDATE HOADON SET TRIGIA = @TRIGIA WHERE SOHD = @SOHD
+END
+
